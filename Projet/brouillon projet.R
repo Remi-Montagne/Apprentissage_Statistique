@@ -40,15 +40,23 @@ for(i in c(2, 12, 22)){
 
 round(cor(tab2[,2:col]), digits = 2)
 correl <- cor(tab2[,-1])
-heatmap.2(correl, sepcolor = "black", trace = "none")
+heatmap.2(correl, sepcolor = "black", trace = "none", main = "Corrélation entre covaraibles")
+
+for(i in 2:11) {
+  print(round(cor(tab2[,c(i, (i+10), (i+20))]), digits = 2))
+  pairs(tab2[,c(i, (i+10), (i+20))], panel = panel.smooth, print("Corrélation entre covariables"))
+  
+}
 
 ### boxplots : distribution des variable en fonction de la variable réponse
 noms <- colnames(tab2)
 par(mfrow = c(1,1))
 for(i in 2:col) {
-  boxplot(tab2[,i]~tab2$Y,xlab = toString(i+1), main = noms[i]) 
+  boxplot(tab2[,i]~tab2$Y,xlab = toString(i+1), main = "")
+  legend("top", legend = paste("Répartition des valeurs de la variable ", noms[i]), cex = 0.8, lty = 0)
+  hist(tab2[,i], main = "")
+  legend("topright", legend = paste("Répartition des valeurs de la variable ", noms[i]), cex = 0.8, bty = "n")
 }
-
 
 #################################
 #      Generation des jeux      #
@@ -62,9 +70,9 @@ train = tab2[train,]
 test = tab2[test,]
 
 #verification que les proportions de chaque type de patient sont similare dans les differents jeux de donnees
-cat("proportion de B dans le tableau total : ", mean(tab2[,1] == "B"))
-cat("proportion de B dans train : ", mean(train[,1] == "B"))
-cat("proportion de B dans test : ", mean(test[,1] == "B"))
+print(cat("proportion de B dans le tableau total : ", mean(tab2[,1] == "B")))
+print(cat("proportion de B dans train : ", mean(train[,1] == "B")))
+print(cat("proportion de B dans test : ", mean(test[,1] == "B")))
 
 
 #################################
@@ -73,7 +81,7 @@ cat("proportion de B dans test : ", mean(test[,1] == "B"))
 
 ### Essai de génération d'un model a partir de toutes les covariables : model_total
 model_min <- glm(Y~1, data = train, family = "binomial")
-model_total <- glm(Y~., data = train[,1:22], family = "binomial")
+model_total <- glm(Y~., data = train[,1:21], family = "binomial")
 summary(model_total)
 # L'algorithme n'a pas convergé
 
@@ -81,13 +89,15 @@ summary(model_total)
 model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
 summary(model_glm)
 
+anova(model_glm, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm11
+
 ### Validation croisee
 
 k <- 5
 set.seed((123))
 group <- sample(1:k,length(tab2[,1]), replace = T)
 tab_pour_cv <- cbind(tab2,group)
-seuils <- seq(0, 1, 0.1)
+seuils <- seq(0, 1, 0.02)
 s_min = 0
 best_pred_err <- 1
 
@@ -100,8 +110,8 @@ for(s in seuils)
   
   for(i in 1:k)
   {
-    train_cv <-tab2[tab_pour_cv[,col+1] != i,1:22]
-    test_cv <-tab2[tab_pour_cv[,col+1] == i,1:22]
+    train_cv <-tab2[tab_pour_cv[,col+1] != i,1:21]
+    test_cv <-tab2[tab_pour_cv[,col+1] == i,1:21]
     
     model_tot <- glm(Y~., data = train_cv, family = "binomial")
     set.seed((123))
@@ -127,6 +137,12 @@ s_min
 best_pred_err
 
 
+model_total <- glm(Y~., data = train[,1:21], family = "binomial")
+model_glm <- glm(Y~., data = , family = "binomial")
+glm_predit = rep("B", length(test[,1])) #on va mettre nos predictions (M ou B) dedans
+probs = predict(model_glm, newdata = test[,-1], type = "response") #prediction de proba
+glm_predit[probs > s_min] <- "M" #si on est au-dessus de 0.5, on met M dans glm-predit. Sinon on laisse les B, qui y sont déjà.
+
 ### Creation du modele a comparer avec les autres methodes
 
 #modele
@@ -136,7 +152,7 @@ model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),dir
 
 #prediction
 glm_predit = rep("B", length(test[,1])) #on va mettre nos predictions (M ou B) dedans
-probs = predict(model_glm, newdata = test, type = "response") #prediction de proba
+probs = predict(model_glm, newdata = test[,1:22], type = "response") #prediction de proba
 glm_predit[probs > s_min] <- 'M' #si on est au-dessus de 0.5, on met M dans glm-predit. Sinon on laisse les B, qui y sont déjà.
 
 table(test$Y, glm_predit)
@@ -212,6 +228,44 @@ table(test$Y, ridge_predit)
 error_ridge <- mean(test$Y != ridge_predit)
 
 
+
+### Obtention d'un premier modele
+xtrain2=model.matrix(Y~., train)[,1:22] #passage de la dataframe en matrice
+xtrain2=xtrain2[,-1] #passage de la dataframe en matrice
+ytrain2 = train$Y
+xtest2=model.matrix(Y~., test)[,1:22]
+xtest2=xtest2[,-1]
+model_ridge2 <- glmnet(xtrain2,ytrain2, family = "binomial", alpha = 0)
+
+### Choix du lambda par validation croisee
+
+# 1e test
+set.seed(123)
+cv.out= cv.glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0)
+plot(cv.out) #trace cvm en fonction de lambda
+
+# minimisation du lambda
+lambda_seq = seq(0.0001, 0.01, 0.0001)
+set.seed(123)
+cv.out= cv.glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0, lambda = lambda_seq)
+plot(cv.out) #trace cvm en fonction de lambda
+
+lambda_opt2 = cv.out$lambda.min
+lambda_opt2
+
+### Prédiction d'un modele avec le lambda optimal
+model_ridge2 = glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0, lambda = lambda_seq)
+
+### Erreur test du modele Ridge
+ridge_predit2 <- predict(object = model_ridge2, newx = xtest2, s = lambda_opt2, type = "class")
+table(test$Y, ridge_predit2)
+error_ridge2 <- mean(test$Y != ridge_predit2)
+
+
+
+
+
+
 #################################
 #        Random Forest          #
 #################################
@@ -225,6 +279,16 @@ print(model_rf) #affiche un summary de la foret
 rf_predit=predict(model_rf, newdata=test, type="class")
 table(test$Y, rf_predit)
 error_rf <- mean(test$Y != rf_predit)
+
+### Construction d'une foret aleatoire
+set.seed(123)
+model_rf2 <- randomForest(Y~., data = train[1:22])
+print(model_rf2) #affiche un summary de la foret
+
+### Erreur test
+rf_predit2=predict(model_rf2, newdata=test, type="class")
+table(test$Y, rf_predit2)
+error_rf2 <- mean(test$Y != rf_predit2)
 
 
 #################################
@@ -265,19 +329,25 @@ cat("glm :", Se_glm, "\n", "arbre CART :", Se_tree, "\n","ridge :", Se_ridge, "\
 pred_tree = predict(model_tree, newdata = test)
 predic_tree = prediction(pred_tree[,2], test$Y)
 perf_tree <- performance(predic_tree, "tpr", "fpr")
-plot(perf_tree, main = "Courbes ROC")
+plot(perf_tree, main = "ROC curve")
 
 #pour la regression logistique
 pred_glm = predict(model_glm, newdata = test, type = "response")
 predic_glm = prediction(pred_glm, test$Y)
 perf_glm <- performance(predic_glm, "tpr", "fpr")
-plot(perf_glm, col = 4, add = TRUE)
+plot(perf_glm, col = 4)
 
 #pour la methode ridge
 pred_ridge = predict(model_ridge, newx = xtest, s = lambda_opt, type = "response")
 predic_ridge = prediction(pred_ridge[,1], test$Y)
 perf_ridge <- performance(predic_ridge, "tpr", "fpr")
-plot(perf_ridge, col = 2, add = TRUE)
+plot(perf_ridge, col = 2, add = T)
+
+#pour la methode ridge2
+pred_ridge2 = predict(model_ridge2, newx = xtest2, s = lambda_opt2, type = "response")
+predic_ridge2 = prediction(pred_ridge2[,1], test$Y)
+perf_ridge2 <- performance(predic_ridge2, "tpr", "fpr")
+plot(perf_ridge2, col = 6, add = TRUE)
 
 #pour la random forest
 pred_rf = predict(model_rf, newdata = test, type = "prob")
@@ -285,8 +355,14 @@ predic_rf = prediction(pred_rf[,2], test$Y)
 perf_rf <- performance(predic_rf, "tpr", "fpr")
 plot(perf_rf, col = 3, add = TRUE)
 
-abline(a = 0, b = 1, col = 4)
+#pour la random forest2
+pred_rf2 = predict(model_rf2, newdata = test, type = "prob")
+predic_rf2 = prediction(pred_rf2[,2], test$Y)
+perf_rf <- performance(predic_rf2, "tpr", "fpr")
+plot(perf_rf, col = 5, add = TRUE)
 
+abline(a = 0, b = 1, col = 4)
+legend("right" , legend = c("reg logistique", "CART", "ridge", "random forest"), fill = c(4, 1, 2, 3), cex = 0.8)
 
 ### AUC
 auc_glm <- performance(predic_glm, "auc")
