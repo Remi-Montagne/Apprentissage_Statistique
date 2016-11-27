@@ -27,7 +27,7 @@ library(randomForest)
 library(MASS)
 library(ROCR)
 
-pdf(file = "figures.pdf")
+#pdf(file = "figures.pdf")
 #################################
 #    Observation des données    #
 #################################
@@ -63,16 +63,17 @@ for(i in 2:col) {
 # d'entrainement et de test     #
 #################################
 
-set.seed(123) #afin d'obtenir des resultats reproductibles, la graine est fixee, ici a 123
+set.seed(1234) #afin d'obtenir des resultats reproductibles, la graine est fixee, ici a 123
 test = sample(1:lin, round(lin/3))
 train = -test
 train = tab2[train,]
 test = tab2[test,]
 
+
 #verification que les proportions de chaque type de patient sont similare dans les differents jeux de donnees
-print(cat("proportion de B dans le tableau total : ", mean(tab2[,1] == "B")))
-print(cat("proportion de B dans train : ", mean(train[,1] == "B")))
-print(cat("proportion de B dans test : ", mean(test[,1] == "B")))
+cat("proportion de B dans le tableau total : ", mean(tab2[,1] == "B"))
+cat("proportion de B dans train : ", mean(train[,1] == "B"))
+cat("proportion de B dans test : ", mean(test[,1] == "B"))
 
 
 #################################
@@ -81,7 +82,7 @@ print(cat("proportion de B dans test : ", mean(test[,1] == "B")))
 
 ### Essai de génération d'un model a partir de toutes les covariables : model_total
 model_min <- glm(Y~1, data = train, family = "binomial")
-model_total <- glm(Y~., data = train[,1:21], family = "binomial")
+model_total <- glm(Y~., data = train, family = "binomial")
 summary(model_total)
 # L'algorithme n'a pas convergé
 
@@ -89,19 +90,18 @@ summary(model_total)
 model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
 summary(model_glm)
 
-anova(model_glm, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm11
+anova(model_glm, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm
 
 ### Validation croisee
-
 k <- 5
-set.seed((123))
+set.seed((1234))
 group <- sample(1:k,length(tab2[,1]), replace = T)
 tab_pour_cv <- cbind(tab2,group)
-seuils <- seq(0, 1, 0.02)
+seuils <- seq(0, 1, 0.025)
 s_min = 0
 best_pred_err <- 1
 
-plot("s", "errer", type = "n", xlim = c(0,1), ylim = c(0,0.2))
+plot("s", "errer", type = "n", xlim = c(0,1), ylim = c(0,0.1))
 
 for(s in seuils)
 {
@@ -110,11 +110,11 @@ for(s in seuils)
   
   for(i in 1:k)
   {
-    train_cv <-tab2[tab_pour_cv[,col+1] != i,1:21]
-    test_cv <-tab2[tab_pour_cv[,col+1] == i,1:21]
+    train_cv <-tab2[tab_pour_cv[,col+1] != i,]
+    test_cv <-tab2[tab_pour_cv[,col+1] == i,]
     
     model_tot <- glm(Y~., data = train_cv, family = "binomial")
-    set.seed((123))
+    set.seed((1234))
     model_glm <- step(model_min,scope=list(lower=model_min, upper = model_tot),direction="both")
     
     glm_predit = rep("B", length(test_cv[,1])) #on va mettre nos predictions (M ou B) dedans
@@ -133,31 +133,26 @@ for(s in seuils)
   }
 }
 
+abline(v = s_min, lty = 2)
 s_min
 best_pred_err
 
 
-model_total <- glm(Y~., data = train[,1:21], family = "binomial")
-model_glm <- glm(Y~., data = , family = "binomial")
-glm_predit = rep("B", length(test[,1])) #on va mettre nos predictions (M ou B) dedans
-probs = predict(model_glm, newdata = test[,-1], type = "response") #prediction de proba
-glm_predit[probs > s_min] <- "M" #si on est au-dessus de 0.5, on met M dans glm-predit. Sinon on laisse les B, qui y sont déjà.
-
 ### Creation du modele a comparer avec les autres methodes
-
 #modele
-model_total <- glm(Y~., data = train[1:22], family = "binomial")
+model_total <- glm(Y~., data = train, family = "binomial")
 set.seed((123))
 model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
+summary(model_glm)
 
 #prediction
 glm_predit = rep("B", length(test[,1])) #on va mettre nos predictions (M ou B) dedans
-probs = predict(model_glm, newdata = test[,1:22], type = "response") #prediction de proba
+probs = predict(model_glm, newdata = test, type = "response") #prediction de proba
 glm_predit[probs > s_min] <- 'M' #si on est au-dessus de 0.5, on met M dans glm-predit. Sinon on laisse les B, qui y sont déjà.
 
 table(test$Y, glm_predit)
 error_glm <- mean(test$Y!=glm_predit)
-error_glm
+
 
 #################################
 #           Arbre CART          #
@@ -196,73 +191,39 @@ error_tree <- mean(tree_predit != test$Y)
 #      Regression Ridge         #
 #################################
 
-### Obtention d'un premier modele
+### Premier modele avec toutes les données d'entraînement
+
+# Obtention du modèle
+x=model.matrix(Y~., tab2)[,-1] #passage de la dataframe en matrice
+y=tab2$Y
 xtrain=model.matrix(Y~., train)[,-1] #passage de la dataframe en matrice
 ytrain = train$Y
 xtest=model.matrix(Y~., test)[,-1]
 
 model_ridge <- glmnet(xtrain,ytrain, family = "binomial", alpha = 0)
 
-### Choix du lambda par validation croisee
-
+# Choix du lambda par validation croisee
 # 1e test
-set.seed(123)
-cv.out= cv.glmnet(xtrain, ytrain, family = "binomial", alpha = 0)
+set.seed(1234)
+cv.out= cv.glmnet(x, y, family = "binomial", alpha = 0)
 plot(cv.out) #trace cvm en fonction de lambda
 
 # minimisation du lambda
 lambda_seq = seq(0.0001, 0.01, 0.0001)
-set.seed(123)
-cv.out= cv.glmnet(xtrain, ytrain, family = "binomial", alpha = 0, lambda = lambda_seq)
+set.seed(1234)
+cv.out= cv.glmnet(x, y, family = "binomial", alpha = 0, lambda = lambda_seq)
 plot(cv.out) #trace cvm en fonction de lambda
 
 lambda_opt = cv.out$lambda.min
 lambda_opt
 
-### Prédiction d'un modele avec le lambda optimal
+# Prédiction d'un modele avec le lambda optimal
 model_ridge = glmnet(xtrain, ytrain, family = "binomial", alpha = 0, lambda = lambda_seq)
 
-### Erreur test du modele Ridge
+# Erreur test du modele Ridge
 ridge_predit <- predict(object = model_ridge, newx = xtest, s = lambda_opt, type = "class")
 table(test$Y, ridge_predit)
 error_ridge <- mean(test$Y != ridge_predit)
-
-
-
-### Obtention d'un premier modele
-xtrain2=model.matrix(Y~., train)[,1:22] #passage de la dataframe en matrice
-xtrain2=xtrain2[,-1] #passage de la dataframe en matrice
-ytrain2 = train$Y
-xtest2=model.matrix(Y~., test)[,1:22]
-xtest2=xtest2[,-1]
-model_ridge2 <- glmnet(xtrain2,ytrain2, family = "binomial", alpha = 0)
-
-### Choix du lambda par validation croisee
-
-# 1e test
-set.seed(123)
-cv.out= cv.glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0)
-plot(cv.out) #trace cvm en fonction de lambda
-
-# minimisation du lambda
-lambda_seq = seq(0.0001, 0.01, 0.0001)
-set.seed(123)
-cv.out= cv.glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0, lambda = lambda_seq)
-plot(cv.out) #trace cvm en fonction de lambda
-
-lambda_opt2 = cv.out$lambda.min
-lambda_opt2
-
-### Prédiction d'un modele avec le lambda optimal
-model_ridge2 = glmnet(xtrain2, ytrain2, family = "binomial", alpha = 0, lambda = lambda_seq)
-
-### Erreur test du modele Ridge
-ridge_predit2 <- predict(object = model_ridge2, newx = xtest2, s = lambda_opt2, type = "class")
-table(test$Y, ridge_predit2)
-error_ridge2 <- mean(test$Y != ridge_predit2)
-
-
-
 
 
 
@@ -271,24 +232,73 @@ error_ridge2 <- mean(test$Y != ridge_predit2)
 #################################
 
 ### Construction d'une foret aleatoire
-set.seed(123)
-model_rf <- randomForest(Y~., data = train)
-print(model_rf) #affiche un summary de la foret
+set.seed(1234)
+model_rf <- randomForest(Y~., data = train, ntree = 1000)
+plot(model_rf)
+
+plot(1,1, type = "n", xlim = c(0,1000), ylim = c(0, 0.15))
+txt <- c()
+color <- c()
+for(i in 1:10) {
+  set.seed(1234)
+  model_rf <- randomForest(Y~., data = tab2, ntree = 1000, mtry = i)
+  oob <- model_rf$err.rate
+  points(1:1000, oob[,1], type = "l", add = TRUE, col = i) #on affiche le taux d'erreur pour chaque taille du nombre B d'arbre.
+  txt = c(txt, i)
+  color = c(color, i)
+}
+legend("topright", legend = txt, fill = color)
+
+plot(1,1, type = "n", xlim = c(0,1000), ylim = c(0, 0.15))
+txt <- c()
+color <- c()
+for(i in 11:20) {
+  set.seed(1234)
+  model_rf <- randomForest(Y~., data = tab2, ntree = 1000, mtry = i)
+  oob <- model_rf$err.rate
+  points(1:1000, oob[,1], type = "l", add = TRUE, col = i-10) #on affiche le taux d'erreur pour chaque taille du nombre B d'arbre.
+  txt = c(txt, i)
+  color = c(color, i-10)
+}
+legend("topright", legend = txt, fill = color)
+
+plot(1,1, type = "n", xlim = c(0,1000), ylim = c(0, 0.15))
+txt <- c()
+color <- c()
+for(i in 21:30) {
+  set.seed(1234)
+  model_rf <- randomForest(Y~., data = tab2, ntree = 1000, mtry = i)
+  oob <- model_rf$err.rate
+  points(1:1000, oob[,1], type = "l", add = TRUE, col = i-20) #on affiche le taux d'erreur pour chaque taille du nombre B d'arbre.
+  txt = c(txt, i)
+  color = c(color, i-20)
+}
+legend("topright", legend = txt, fill = color)
+
+top_m = c(6, 8, 16, 18, 19, 25, 26)
+plot(1,1, type = "n", xlim = c(0,1000), ylim = c(0, 0.1))
+txt <- c()
+color <- c()
+j = 1
+for(i in top_m) {
+  set.seed(1234)
+  model_rf <- randomForest(Y~., data = train, ntree = 1000, mtry = i)
+  oob <- model_rf$err.rate
+  points(1:1000, oob[,1], type = "l", add = TRUE, col = j) #on affiche le taux d'erreur pour chaque taille du nombre B d'arbre.
+  txt = c(txt, i)
+  color = c(color, j)
+  j = j+1
+}
+legend("topright", legend = txt, fill = color)
+
+# construction d'une foret aleatoire a partir de 400 arbres et d'un taux m = 6
+set.seed(1234)
+model_rf <- randomForest(Y~., data = train, mtry = 8, ntree = 400)
 
 ### Erreur test
 rf_predit=predict(model_rf, newdata=test, type="class")
 table(test$Y, rf_predit)
 error_rf <- mean(test$Y != rf_predit)
-
-### Construction d'une foret aleatoire
-set.seed(123)
-model_rf2 <- randomForest(Y~., data = train[1:22])
-print(model_rf2) #affiche un summary de la foret
-
-### Erreur test
-rf_predit2=predict(model_rf2, newdata=test, type="class")
-table(test$Y, rf_predit2)
-error_rf2 <- mean(test$Y != rf_predit2)
 
 
 #################################
