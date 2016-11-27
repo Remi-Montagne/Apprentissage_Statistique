@@ -155,39 +155,6 @@ error_glm <- mean(test$Y!=glm_predit)
 
 
 #################################
-#           Arbre CART          #
-#################################
-
-### Obtention du modele
-model_tree <- tree(Y~., data = train)
-summary(model_tree)
-plot(model_tree)
-text(model_tree, cex=0.7)
-
-### Raffinement du modele : elagage
-
-# etude d'elagages possibles
-set.seed(123)
-CV_tree = cv.tree(model_tree, FUN = prune.misclass) #remarque : par defaut, on a FUN=prune.tree pas bon ça correspond a l'erreur d'apprentissage
-CV_tree
-plot(CV_tree$size, CV_tree$dev, type = 'b')
-
-# selection du plus petit nombre de feuilles donnant la plus petite erreur de prediction
-nb_feuille_candidat <- which(CV_tree$dev == min(CV_tree$dev)) 
-feuilles <- CV_tree$size[nb_feuille_candidat]
-feuilles_min <- min(feuilles)
-
-# nouvel arbre
-model_prune <- prune.misclass(model_tree, best=feuilles_min)
-plot(model_prune)
-text(model_prune, cex=0.7)
-
-### Erreur test de l'arbre
-tree_predit=predict(model_prune, newdata=test, type="class")
-error_tree <- mean(tree_predit != test$Y)
-
-
-#################################
 #      Regression Ridge         #
 #################################
 
@@ -307,7 +274,7 @@ error_rf <- mean(test$Y != rf_predit)
 #################################
 
 ### Taux de mal classes
-cat("arbre CART :", error_glm, "\n", "arbre CART :", error_tree, "\n","ridge :", error_ridge, "\n","random forest :", error_rf, "\n\n\n")
+cat("regression :", error_glm, "\n", "ridge :", error_ridge, "\n","random forest :", error_rf, "\n\n\n")
 
 ### Matrices de confusion, FPR (qui correspond ici a la detection des malades)
 
@@ -315,11 +282,6 @@ cat("arbre CART :", error_glm, "\n", "arbre CART :", error_tree, "\n","ridge :",
 mc_glm <- table(test$Y, glm_predit)
 mc_glm
 Se_glm <- mc_glm[2,2]/(mc_glm[2,1] + mc_glm[2,2])
-
-#arbre CART
-mc_tree <- table(test$Y, tree_predit)
-mc_tree
-Se_tree <- mc_tree[2,2]/(mc_tree[2,1] + mc_tree[2,2])
 
 #methode ridge
 mc_ridge <- table(test$Y, ridge_predit)
@@ -331,21 +293,15 @@ mc_rf <- table(test$Y, rf_predit)
 mc_rf
 Se_rf <- mc_rf[2,2]/(mc_rf[2,1] + mc_rf[2,2])
 
-cat("glm :", Se_glm, "\n", "arbre CART :", Se_tree, "\n","ridge :", Se_ridge, "\n","random forest :", Se_rf, "\n\n\n")
+cat("glm :", Se_glm, "\n","ridge :", Se_ridge, "\n","random forest :", Se_rf, "\n\n\n")
 
 ### Coursbes ROC
-
-#pour l'arbre CART
-pred_tree = predict(model_tree, newdata = test)
-predic_tree = prediction(pred_tree[,2], test$Y)
-perf_tree <- performance(predic_tree, "tpr", "fpr")
-plot(perf_tree, main = "ROC curve")
 
 #pour la regression logistique
 pred_glm = predict(model_glm, newdata = test, type = "response")
 predic_glm = prediction(pred_glm, test$Y)
 perf_glm <- performance(predic_glm, "tpr", "fpr")
-plot(perf_glm, col = 4)
+plot(perf_glm, col = 1)
 
 #pour la methode ridge
 pred_ridge = predict(model_ridge, newx = xtest, s = lambda_opt, type = "response")
@@ -353,33 +309,20 @@ predic_ridge = prediction(pred_ridge[,1], test$Y)
 perf_ridge <- performance(predic_ridge, "tpr", "fpr")
 plot(perf_ridge, col = 2, add = T)
 
-#pour la methode ridge2
-pred_ridge2 = predict(model_ridge2, newx = xtest2, s = lambda_opt2, type = "response")
-predic_ridge2 = prediction(pred_ridge2[,1], test$Y)
-perf_ridge2 <- performance(predic_ridge2, "tpr", "fpr")
-plot(perf_ridge2, col = 6, add = TRUE)
-
 #pour la random forest
 pred_rf = predict(model_rf, newdata = test, type = "prob")
 predic_rf = prediction(pred_rf[,2], test$Y)
 perf_rf <- performance(predic_rf, "tpr", "fpr")
 plot(perf_rf, col = 3, add = TRUE)
 
-#pour la random forest2
-pred_rf2 = predict(model_rf2, newdata = test, type = "prob")
-predic_rf2 = prediction(pred_rf2[,2], test$Y)
-perf_rf <- performance(predic_rf2, "tpr", "fpr")
-plot(perf_rf, col = 5, add = TRUE)
-
 abline(a = 0, b = 1, col = 4)
-legend("right" , legend = c("reg logistique", "CART", "ridge", "random forest"), fill = c(4, 1, 2, 3), cex = 0.8)
+legend("right" , legend = c("reg logistique", "ridge", "random forest"), fill = c(1, 2, 3), cex = 0.8)
 
 ### AUC
 auc_glm <- performance(predic_glm, "auc")
-auc_tree <- performance(predic_tree, "auc")
 auc_ridge <- performance(predic_ridge, "auc")
 auc_rf <- performance(predic_rf, "auc")
 
-cat("glm :", as.numeric(auc_glm@y.values) , "\n", "arbre CART :", as.numeric(auc_tree@y.values), "\n","ridge :", as.numeric(auc_ridge@y.values), "\n","random forest :", as.numeric(auc_rf@y.values), "\n\n\n")
+cat("glm :", as.numeric(auc_glm@y.values) , "\n","ridge :", as.numeric(auc_ridge@y.values), "\n","random forest :", as.numeric(auc_rf@y.values), "\n\n\n")
 
 dev.off()
