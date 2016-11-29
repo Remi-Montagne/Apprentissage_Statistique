@@ -3,6 +3,7 @@
 ############################################
 
 rm(list=ls())
+par(mfrow = c(1,1))
 
 #################################
 # Chargement data et librairies #
@@ -21,7 +22,7 @@ col <- ncol(tab2) #nombre de lignes
 
 ### chargement des librairies
 library(gplots)
-library(tree)
+library(boot)
 library(glmnet)
 library(randomForest)
 library(MASS)
@@ -58,6 +59,7 @@ for(i in 2:col) {
   legend("topright", legend = paste("Répartition des valeurs de la variable ", noms[i]), cex = 0.8, bty = "n")
 }
 
+
 #################################
 #      Generation des jeux      #
 # d'entrainement et de test     #
@@ -87,61 +89,60 @@ summary(model_total)
 # L'algorithme n'a pas convergé
 
 ### Construction d'un modèle pas à pas à partir du modèle nul en minimisant le critere AIC
-model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
-summary(model_glm)
+model_asc <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
+summary(model_asc)
 
-anova(model_glm, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm
+### Construction d'un modèle pas à pas à partir du modèle nul en minimisant le critere AIC
+model_desc <- step(model_total,scope=list(lower=model_min, upper = model_total),direction="both")
+summary(model_desc)
+
+anova(model_asc, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm
+anova(model_desc, model_total, test = "Chisq") #Verification que l'on ne rejette pas le model_glm
 
 ### Validation croisee
 k <- 5
 set.seed((1234))
 group <- sample(1:k,length(tab2[,1]), replace = T)
 tab_pour_cv <- cbind(tab2,group)
-seuils <- seq(0, 1, 0.025)
-s_min = 0
-best_pred_err <- 1
+seuils <- seq(0, 1, 0.1)
 
 plot("s", "errer", type = "n", xlim = c(0,1), ylim = c(0,0.1))
 
-for(s in seuils)
-{
-  
-  list_mal_classes <- c()
-  
-  for(i in 1:k)
-  {
+
+noms <- list(seq(1,5), seuils)
+errors <- matrix(nrow = k, ncol = length(seuils), dimnames = noms)
+
+for(i in 1:k) {
     train_cv <-tab2[tab_pour_cv[,col+1] != i,]
     test_cv <-tab2[tab_pour_cv[,col+1] == i,]
     
     model_tot <- glm(Y~., data = train_cv, family = "binomial")
-    set.seed((1234))
     model_glm <- step(model_min,scope=list(lower=model_min, upper = model_tot),direction="both")
     
+    j <- 1
+    for(s in seuils){
     glm_predit = rep("B", length(test_cv[,1])) #on va mettre nos predictions (M ou B) dedans
     probs = predict(model_glm, newdata = test_cv[,-1], type = "response") #prediction de proba
     glm_predit[probs > s] <- "M" #si on est au-dessus de 0.5, on met M dans glm-predit. Sinon on laisse les B, qui y sont déjà.
     
-    list_mal_classes <- c(list_mal_classes, mean(test_cv$Y!=glm_predit)) #moyenne des mal classe
-  }
-  
-  points(s, mean(list_mal_classes))
-  
-  if(mean(list_mal_classes) < best_pred_err)
-  {
-    s_min <- s
-    best_pred_err <- mean(list_mal_classes)
-  }
+    errors[i, j] <- mean(test_cv$Y!=glm_predit) #moyenne des mal classe
+    j <- j+1
+    }
 }
+#errors <- data.frame(errors)
+err_moyennes <- apply(errors, 2, mean)
+plot(seuils, err_moyennes, ylim = c(0,0.15))
 
+s_min <- noms[[2]][which.min(err_moyennes)]
 abline(v = s_min, lty = 2)
 s_min
+best_pred_err = min(err_moyennes)
 best_pred_err
-
 
 ### Creation du modele a comparer avec les autres methodes
 #modele
 model_total <- glm(Y~., data = train, family = "binomial")
-set.seed((123))
+set.seed((1234))
 model_glm <- step(model_min,scope=list(lower=model_min, upper = model_total),direction="both")
 summary(model_glm)
 
@@ -325,4 +326,4 @@ auc_rf <- performance(predic_rf, "auc")
 
 cat("glm :", as.numeric(auc_glm@y.values) , "\n","ridge :", as.numeric(auc_ridge@y.values), "\n","random forest :", as.numeric(auc_rf@y.values), "\n\n\n")
 
-dev.off()
+#dev.off()
